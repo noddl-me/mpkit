@@ -69,6 +69,15 @@ class Mpking {
   getOSSFileUrl = (filename, absolute = false) =>
     absolute ? filename : `${this.ossUrl}/${filename}`;
 
+  r = async (options) => {
+    const res = await this.request(options);
+    if (res.statusCode !== 200) {
+      throw res.data.message || "";
+    } else {
+      return res.data;
+    }
+  };
+
   request = (options, times = 0) => {
     const url = options.absoluteUrl
       ? options.absoluteUrl
