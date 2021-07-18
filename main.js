@@ -78,133 +78,105 @@ class Mpking {
     }
   };
 
-  request = (options, times = 0) => {
+  request = async (options, retry = 0) => {
     const url = options.absoluteUrl
       ? options.absoluteUrl
       : `${this.baseUrl}${options.url}`;
     const token = uni.getStorageSync("token");
     const params = {
-      ...options,
-      url,
       header: {
         "Accept-Language": "zh-hans",
       },
+      ...options,
+      url,
     };
     if (!options.withoutToken) {
       if (token) {
         params.header.Authorization = `Bearer ${token}`;
       } else {
-        return this.fetchOpenid(true).then(() => {
-          return this.request(options, times + 1);
-        });
+        await this.fetchOpenid(true);
+        return await this.request(options, retry + 1);
       }
     }
-    return uni.request(params).then((r) => {
-      const [err, res] = r;
-      if (err) {
-        this._showToast("系统错误");
-        return Promise.reject(err);
+    const [err, res] = await uni.request(params);
+    if (err) {
+      throw res.data.message || "请求错误，请重试";
+    }
+    if (res.statusCode === 401) {
+      if (retry >= 5) {
+        throw "网络不佳，请稍后重试";
+      } else {
+        await this.fetchOpenid(true);
+        return await this.request(options, retry + 1);
       }
-      if (res.statusCode === 401) {
-        if (times >= 5) {
-          this._showToast("网络通讯不佳，请稍后重试");
-          return Promise.reject(401);
-        } else {
-          return this.fetchOpenid(true).then(() => {
-            return this.request(options, times + 1);
-          });
-        }
-      }
-      if (res.statusCode === 403) {
-        this._showToast("无权限访问");
-        return Promise.reject(403);
-      }
-      return res;
-    });
+    }
+    if (res.statusCode === 403) {
+      return "无权访问";
+    }
+    return res;
   };
 
-  fetchOpenid = (renew = false) => {
-    const { openid } = this.globalData;
-
+  fetchOpenid = async (renew = false, retry = 0) => {
+    const openid = uni.getStorageSync("openid");
     if (openid && !renew) {
-      return Promise.resolve(openid);
+      return openid;
     }
-    return uni
-      .login()
-      .then((r) => {
-        const [err, res] = r;
-        if (err) {
-          return Promise.reject(err);
-        }
-        return this.request({
-          url: "/session/openid",
-          method: "POST",
-          withoutToken: true,
-          data: {
-            code: res.code,
-            application: this.application,
-            type: this.runtime,
-          },
-        }).then((res1) => {
-          if (!res1 || !res1.data) {
-            return Promise.reject(new Error("从server获取openid失败"));
-          }
-          if (res1.statusCode !== 200) {
-            return Promise.reject(new Error(res1.data.message));
-          }
-          const { openid, token } = res1.data;
-          this.globalData.openid = openid;
-          uni.setStorageSync("token", token);
-          return openid;
-        });
-      })
-      .catch((err) => {
-        this._showToast("登录失败，请重试");
-        return Promise.reject(err);
+    const [err, res] = await uni.login();
+    if (err) {
+      if (retry > 2) {
+        throw "登录失败";
+      } else {
+        return await this.fetchOpenid(false, retry + 1);
+      }
+    }
+    try {
+      const { openid, token } = await this.r({
+        url: "/session/openid",
+        method: "POST",
+        withoutToken: true,
+        data: {
+          code: res.code,
+          application: this.application,
+          type: this.runtime,
+        },
       });
+      this.globalData.openid = openid;
+      uni.setStorageSync("token", token);
+      uni.setStorageSync("openid", openid);
+      return openid;
+    } catch (e) {
+      if (retry > 2) {
+        throw e || "登录失败";
+      } else {
+        return await this.fetchOpenid(false, retry + 1);
+      }
+    }
   };
 
-  getConfig = () => {
+  getConfig = async () => {
     if (this.globalData.config) {
-      return Promise.resolve(this.globalData.config);
+      return this.globalData.config;
     }
     const url = `/announcement/announcements/${this.application}`;
-    return this.request({
-      url,
-      method: "GET",
-    })
-      .then((res) => {
-        if (res.statusCode !== 200) {
-          throw Error("获取配置失败");
-        }
-        const config = res.data;
-        this.globalData.config = config;
-        this.cc = config.content;
-        const currentVersion = uni.getStorageSync("version");
-        uni.setStorageSync("version", config.version);
-        if (config.version !== this.version) {
-          this.globalData.verification = true;
-        }
-        return {
-          ...res.data,
-          updated: currentVersion !== config.version,
-        };
-      })
-      .catch((err) => {
-        return new Promise((resolve, reject) => {
-          uni.showModal({
-            title: "初始化失败，请求重试",
-            confirmText: "重试",
-            success: (res) => {
-              if (res.confirm) {
-                resolve(this.getConfig());
-              } else {
-                reject();
-              }
-            },
-          });
-        });
+    try {
+      const config = await this.r({
+        url,
+        method: "GET",
       });
+      this.globalData.config = config;
+      this.cc = config.content;
+      const currentVersion = uni.getStorageSync("version");
+      uni.setStorageSync("version", config.version);
+      if (config.version !== this.version) {
+        this.globalData.verification = true;
+      }
+      return {
+        ...config,
+        updated: currentVersion !== config.version,
+      };
+    } catch (e) {
+      throw e || "获取配置文件失败";
+    }
   };
 
   uploadFileToOSS(options) {
@@ -275,48 +247,6 @@ class Mpking {
       }
       return "";
     });
-  };
-
-  loadImage = (canvas, src) => {
-    return new Promise((resolve, reject) => {
-      const img = canvas.createImage();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
-  };
-
-  showTakeoutAd = () => {
-    this.globalData.takeoutCounter += 1;
-    if (this.globalData.takeoutCounter % 4 !== 0) {
-      return;
-    }
-    const now = new Date();
-    const h = now.getHours();
-    // 进入一次，3小时不打扰
-    const lastEnterTime = uni.getStorageSync("lastEnterTime");
-    if (lastEnterTime && now.getTime() - lastEnterTime <= 3 * 60 * 60 * 1000) {
-      return;
-    }
-    if ((h >= 11 && h <= 13) || (h >= 16 && h <= 21) || h === 23) {
-      uni.showModal({
-        title: "到饭点了",
-        content: "送你一个饿了吗、美团无门槛红包（每日仅限2个）",
-        confirmText: "立即领取",
-        cancelText: "下次",
-        success: (res) => {
-          if (res.confirm) {
-            uni.navigateToMiniProgram({
-              appId: "wx6683e80ec901c27c",
-              path: `/pages/home/index?from=${this.application}`,
-              success: () => {
-                uni.setStorageSync("lastEnterTime", now.getTime());
-              },
-            });
-          }
-        },
-      });
-    }
   };
 
   verifiyText = async (text) => {
