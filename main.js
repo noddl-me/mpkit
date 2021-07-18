@@ -157,11 +157,11 @@ class Mpking {
     if (this.globalData.config) {
       return this.globalData.config;
     }
-    const url = `/announcement/announcements/${this.application}`;
     try {
       const config = await this.r({
-        url,
+        url: `/announcement/announcements/${this.application}`,
         method: "GET",
+        withoutToken: true,
       });
       this.globalData.config = config;
       this.cc = config.content;
