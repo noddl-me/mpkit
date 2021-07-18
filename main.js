@@ -93,8 +93,10 @@ class Mpking {
     if (!options.withoutToken) {
       if (token) {
         params.header.Authorization = `Bearer ${token}`;
+      } else if (retry >= 5) {
+        throw "请求错误，请重试";
       } else {
-        await this.fetchOpenid(true);
+        await this.openidPromise;
         return await this.request(options, retry + 1);
       }
     }
@@ -152,6 +154,16 @@ class Mpking {
       }
     }
   };
+
+  // Singleton openid
+  openidPromise = new Promise(async (resolve, reject) => {
+    try {
+      const openid = await this.fetchOpenid();
+      resolve(openid);
+    } catch (e) {
+      reject(e);
+    }
+  });
 
   getConfig = async () => {
     if (this.globalData.config) {
