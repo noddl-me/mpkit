@@ -102,7 +102,7 @@ class Mpking {
     }
     const [err, res] = await uni.request(params);
     if (err) {
-      throw res.data.message || "请求错误，请重试";
+      throw "请求错误，请重试";
     }
     if (res.statusCode === 401) {
       if (retry >= 5) {
