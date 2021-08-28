@@ -25,6 +25,7 @@ class Mpking {
   runtime = "wechat";
   isWeapp = typeof wx !== "undefined";
   sdkVersion = getSDKVersion(sys.SDKVersion);
+  logger = null;
 
   timelineEnabled =
     this.isWeapp &&
@@ -42,6 +43,9 @@ class Mpking {
     this.application = options.application || "";
     this.baseUrl = options.baseUrl || "https://www.noddl.me/v3";
     this.ossUrl = options.ossUrl || "https://bbq.noddl.me";
+    if (this.runtime === "wechat") {
+      this.logger = wx.getRealtimeLogManager();
+    }
   }
 
   _showToast(title, duration = 4000) {
@@ -70,11 +74,18 @@ class Mpking {
     absolute ? filename : `${this.ossUrl}/${filename}`;
 
   r = async (options) => {
-    const res = await this.request(options);
-    if (res.statusCode !== 200) {
-      throw res.data.message || "";
-    } else {
-      return res.data;
+    try {
+      const res = await this.request(options);
+      if (res.statusCode !== 200) {
+        throw res.data.message || "";
+      } else {
+        return res.data;
+      }
+    } catch (e) {
+      if (this.logger) {
+        this.logger.error(e);
+      }
+      throw e;
     }
   };
 
@@ -102,6 +113,9 @@ class Mpking {
     }
     const [err, res] = await uni.request(params);
     if (err) {
+      if (this.logger) {
+        this.logger.error(err);
+      }
       throw "请求错误，请重试";
     }
     if (res.statusCode === 401) {
@@ -113,7 +127,7 @@ class Mpking {
       }
     }
     if (res.statusCode === 403) {
-      return "无权访问";
+      throw "无权访问";
     }
     return res;
   };
@@ -172,7 +186,6 @@ class Mpking {
     try {
       const config = await this.r({
         url: `/announcement/announcements/${this.application}`,
-        method: "GET",
         withoutToken: true,
       });
       this.globalData.config = config;
@@ -261,18 +274,16 @@ class Mpking {
     });
   };
 
-  verifiyText = async (text) => {
-    return this.request({
+  verifyText = async (text) => {
+    const { code } = await this.r({
       url: "/session/security/text",
       method: "POST",
       data: {
         text,
         application: this.application,
       },
-    }).then((res) => {
-      const success = !!res.data.success;
-      return success;
     });
+    return code !== 87014;
   };
 }
 
