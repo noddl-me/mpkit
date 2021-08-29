@@ -126,9 +126,6 @@ class Mpking {
         return await this.request(options, retry + 1);
       }
     }
-    if (res.statusCode === 403) {
-      throw "无权访问";
-    }
     return res;
   };
 
@@ -139,6 +136,9 @@ class Mpking {
     }
     const [err, res] = await uni.login();
     if (err) {
+      if (this.logger) {
+        this.logger.error(err);
+      }
       if (retry > 2) {
         throw "登录失败";
       } else {
@@ -235,7 +235,9 @@ class Mpking {
             }
           },
           fail: (err) => {
-            console.error(err);
+            if (this.logger) {
+              this.logger.error(err);
+            }
             reject("上传失败");
           },
         });
@@ -284,6 +286,44 @@ class Mpking {
       },
     });
     return code !== 87014;
+  };
+
+  getUserProfile = ({ desc }) => {
+    return new Promise((resolve, reject) => {
+      uni.getUserProfile({
+        desc,
+        success: (res) => {
+          resolve(res);
+        },
+        fail: (err) => {
+          if (this.logger) {
+            this.logger.error(err);
+          }
+          reject("获取用户信息失败");
+        },
+      });
+    });
+  };
+
+  getFeatureStatus = (cc, name) => {
+    const { featureStatus } = cc;
+    if (!featureStatus) {
+      return {
+        ok: true,
+        message: ""
+      };
+    }
+    const config = featureStatus[name];
+    if (!config) {
+      return {
+        ok: true,
+        message: ""
+      };
+    }
+    return {
+      ok: config.ok,
+      message: config.message || featureStatus.defaultMessage,
+    };
   };
 }
 
